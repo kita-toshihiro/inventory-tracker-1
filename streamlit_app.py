@@ -73,9 +73,8 @@ def load_data(conn: SupabaseConnection):
     """Loads the inventory data from the database."""
     
     try:
-        # conn.query() を使用 (SELECT * FROM inventory)
-        # ttl=0 を設定し、キャッシュを無効にして常に最新データを取得
-        response = conn.query("*", table="inventory", ttl=0).execute()
+        # 修正: conn.query() の代わりに conn.client.table().select() を使用
+        response = conn.client.table("inventory").select("*").execute()
         
         if not response.data:
             return pd.DataFrame() # 空の DataFrame を返す
