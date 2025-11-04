@@ -1,45 +1,28 @@
 from collections import defaultdict
-# from pathlib import Path  <- 不要
-# import sqlite3           <- 不要
-
 import streamlit as st
 import altair as alt
 import pandas as pd
-from st_supabase_connection import SupabaseConnection # 追加
+from st_supabase_connection import SupabaseConnection
 
 # Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
     page_title="Inventory tracker",
-    page_icon=":shopping_bags:",  # This is an emoji shortcode. Could be a URL too.
+    page_icon=":shopping_bags:",
 )
 
 
 # -----------------------------------------------------------------------------
 # Declare some useful functions.
 
-# connect_db() 関数は st.connection を使うため不要
-
-
 def initialize_data(conn):
     """
     Initializes the inventory table with some data.
     Assumes the 'inventory' table *already exists* in Supabase.
+    Uses conn.client (supabase-py) syntax.
     """
     
-    #
     # 注：CREATE TABLEコマンドは Supabase SQL エディタで手動実行する必要があります:
-    #
-    # CREATE TABLE IF NOT EXISTS inventory (
-    #     id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    #     item_name TEXT,
-    #     price REAL,
-    #     units_sold INTEGER,
-    #     units_left INTEGER,
-    #     cost_price REAL,
-    #     reorder_point INTEGER,
-    #     description TEXT
-    # );
-    #
+    # (省略)...
 
     data_to_insert = [
         # Beverages
@@ -76,15 +59,19 @@ def initialize_data(conn):
     ]
 
     try:
-        # st-supabase-connection の insert メソッドを使用
-        conn.insert(table="inventory", data=data_to_insert)
+        # st-supabase-connection のラッパー(conn.insert)の代わりに
+        # conn.client (supabase-py) を直接使用
+        conn.client.table("inventory").insert(data_to_insert).execute()
     except Exception as e:
         st.error(f"Error initializing data: {e}")
         st.error("Please ensure the 'inventory' table exists and matches the required schema.")
 
 
 def load_data(conn):
-    """Loads the inventory data from the database."""
+    """
+    Loads the inventory data from the database.
+    Uses conn.client (supabase-py) syntax.
+    """
     
     df_columns = [
             "id",
@@ -98,12 +85,11 @@ def load_data(conn):
         ]
     
     try:
-        # st-supabase-connection の 'query' ではなく 'select' メソッドを使用
-        # idでソートして一貫した順序を保証
-        result = conn.select("*", table="inventory", order="id") # <-- 修正点
+        # conn.query や conn.select の代わりに
+        # conn.client (supabase-py) を直接使用
+        result = conn.client.table("inventory").select("*").order("id").execute()
         data = result.data
     except Exception as e:
-        # 潜在的なエラー（テーブルが見つからないなど）をキャッチ
         st.error(f"Error loading data: {e}")
         st.warning("Ensure the 'inventory' table exists in your Supabase project.")
         return None
@@ -121,7 +107,10 @@ def load_data(conn):
 
 
 def update_data(conn, df, changes):
-    """Updates the inventory data in the database."""
+    """
+    Updates the inventory data in the database.
+    Uses conn.client (supabase-py) syntax.
+    """
     try:
         if changes["edited_rows"]:
             deltas = st.session_state.inventory_table["edited_rows"]
@@ -130,37 +119,28 @@ def update_data(conn, df, changes):
                 row_dict = df.iloc[i].to_dict()
                 row_dict.update(delta)
                 
-                # id をペイロードから削除
                 row_id = row_dict.pop("id") 
                 
-                # st-supabase-connection の update は matching_columns を使用 (デフォルト 'id')
-                conn.update(
-                    table="inventory", 
-                    data=row_dict, 
-                    matching_columns={"id": row_id}
-                )
+                # conn.update の代わりに conn.client を使用
+                conn.client.table("inventory").update(row_dict).eq("id", row_id).execute()
 
         if changes["added_rows"]:
-            # 挿入用の行を準備
             rows_to_insert = [
                 defaultdict(lambda: None, row) for row in changes["added_rows"]
             ]
             
-            # 'id' が存在する場合は削除 (Supabaseが生成するため)
             for row in rows_to_insert:
                 row.pop("id", None) 
 
-            conn.insert(table="inventory", data=rows_to_insert)
+            # conn.insert の代わりに conn.client を使用
+            conn.client.table("inventory").insert(rows_to_insert).execute()
 
         if changes["deleted_rows"]:
             for i in changes["deleted_rows"]:
-                # 削除する行の実際の 'id' を取得
                 row_id = int(df.loc[i, "id"])
                 
-                conn.delete(
-                    table="inventory",
-                    matching_columns={"id": row_id}
-                )
+                # conn.delete の代わりに conn.client を使用
+                conn.client.table("inventory").delete().eq("id", row_id).execute()
         
         st.toast("Changes committed successfully!")
 
@@ -187,7 +167,6 @@ st.info(
 )
 
 # Connect to database
-# secrets.toml (connections.supabase) を自動的に使用
 conn = st.connection("supabase", type=SupabaseConnection)
 
 # Load data from database
@@ -210,10 +189,9 @@ if df is None:
 # Display data with editable table
 edited_df = st.data_editor(
     df,
-    disabled=["id"],  # Don't allow editing the 'id' column.
-    num_rows="dynamic",  # Allow appending/deleting rows.
+    disabled=["id"],
+    num_rows="dynamic",
     column_config={
-        # Show dollar sign before price columns.
         "price": st.column_config.NumberColumn(format="$%.2f"),
         "cost_price": st.column_config.NumberColumn(format="$%.2f"),
     },
