@@ -1,20 +1,76 @@
-# 🛍️ Inventory tracker template
 
-A Streamlit app showing how to use `st.data_editor` to read and modify a database. Behind the scenes
-this uses a simple SQLite database, but you can easily replace it with whatever your favorite DB is.
+# 🎓 TOEIC 600点 4択マスター
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://inventory-tracker-template.streamlit.app/)
+Streamlitを利用した、効率的な英単語学習のためのWebアプリケーションです。TOEIC 600点レベルの英単語を4択クイズ形式で学び、苦手な単語を重点的に復習することができます。
 
-### How to run it on your own machine
+---
 
-1. Install the requirements
+## 🌟 主な機能
 
-   ```
-   $ pip install -r requirements.txt
-   ```
+* **4択クイズモード**: データベースからランダムに出題される英単語の意味を4つの選択肢から選びます。
+* **復習モード**: 過去に間違えた単語だけを抽出して集中的に学習できます。
+* **学習記録の可視化**: 間違えた回数が多い「苦手な単語」をランキング形式で表示します。
+* **自動DB連携**: `words.csv` を用意するだけで、自分だけの単語帳を自動でデータベース化します。
 
-2. Run the app
+---
 
-   ```
-   $ streamlit run streamlit_app.py
-   ```
+## 🛠 セットアップ方法
+
+### 1. 依存ライブラリのインストール
+
+Python環境がインストールされていることを確認し、必要なライブラリをインストールしてください。
+
+```bash
+pip install streamlit pandas
+
+```
+
+### 2. 単語データの準備
+
+プロジェクトのルートディレクトリに `words.csv` という名前でCSVファイルを配置してください。初回起動時に自動的にデータベースに読み込まれます。
+
+**words.csv のフォーマット例:**
+| word | mean | level |
+| :--- | :--- | :--- |
+| maintain | 〜を維持する | 600 |
+| approximately | およそ | 600 |
+
+### 3. アプリの起動
+
+以下のコマンドでアプリを起動します。
+
+```bash
+streamlit run app.py
+
+```
+
+※ `app.py` はソースコードを保存したファイル名に合わせて適宜変更してください。
+
+---
+
+## 📊 データの仕組み
+
+このアプリは **SQLite** を使用して学習履歴を管理しています。
+
+* **words**: 単語本体、意味、レベルを保存
+* **records**: クイズの回答結果（正解/不正解）と日時を保存
+
+---
+
+## 💻 使用技術
+
+* **Frontend/UI**: [Streamlit](https://streamlit.io/)
+* **Data Handling**: [Pandas](https://pandas.pydata.org/)
+* **Database**: SQLite3
+
+---
+
+## 💡 今後のロードマップ（カスタマイズ例）
+
+* CSVアップロード機能の追加
+* 品詞別のフィルタリング機能
+* 正解率に基づく進捗グラフの表示
+
+---
+
+**作成したREADMEに、インストール手順の詳細や、特定の動作環境（Dockerなど）の追記が必要な場合はお知らせください！**
