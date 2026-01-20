@@ -40,11 +40,9 @@ pip install streamlit pandas
 以下のコマンドでアプリを起動します。
 
 ```bash
-streamlit run app.py
+streamlit run streamlit_app.py
 
 ```
-
-※ `app.py` はソースコードを保存したファイル名に合わせて適宜変更してください。
 
 ---
 
