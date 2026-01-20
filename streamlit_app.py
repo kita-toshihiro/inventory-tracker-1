@@ -1,280 +1,130 @@
-from collections import defaultdict
 import streamlit as st
-import altair as alt
 import pandas as pd
-from st_supabase_connection import SupabaseConnection
+import sqlite3
+import os
+import random
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title="Inventory tracker",
-    page_icon=":shopping_bags:",
-)
-
-
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
-
-def initialize_data(conn):
-    """
-    Initializes the inventory table with some data.
-    Assumes the 'inventory' table *already exists* in Supabase.
-    Uses conn.client (supabase-py) syntax.
-    """
+# --- データベース設定 ---
+def init_db():
+    conn = sqlite3.connect('vocab_app.db', check_same_thread=False)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS words 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, word TEXT, mean TEXT, level INTEGER)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS records 
+                 (word_id INTEGER, is_correct INTEGER, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 注：CREATE TABLEコマンドは Supabase SQL エディタで手動実行する必要があります:
-    # (省略)...
+    if os.path.exists('words.csv'):
+        c.execute("SELECT count(*) FROM words")
+        if c.fetchone()[0] == 0:
+            df_csv = pd.read_csv('words.csv')
+            df_csv.to_sql('words', conn, if_exists='append', index=False)
+    conn.commit()
+    return conn
 
-    data_to_insert = [
-        # Beverages
-        {'item_name': 'Bottled Water (500ml)', 'price': 1.50, 'units_sold': 115, 'units_left': 15, 'cost_price': 0.80, 'reorder_point': 16, 'description': 'Hydrating bottled water'},
-        {'item_name': 'Soda (355ml)', 'price': 2.00, 'units_sold': 93, 'units_left': 8, 'cost_price': 1.20, 'reorder_point': 10, 'description': 'Carbonated soft drink'},
-        {'item_name': 'Energy Drink (250ml)', 'price': 2.50, 'units_sold': 12, 'units_left': 18, 'cost_price': 1.50, 'reorder_point': 8, 'description': 'High-caffeine energy drink'},
-        {'item_name': 'Coffee (hot, large)', 'price': 2.75, 'units_sold': 11, 'units_left': 14, 'cost_price': 1.80, 'reorder_point': 5, 'description': 'Freshly brewed hot coffee'},
-        {'item_name': 'Juice (200ml)', 'price': 2.25, 'units_sold': 11, 'units_left': 9, 'cost_price': 1.30, 'reorder_point': 5, 'description': 'Fruit juice blend'},
+conn = init_db()
 
-        # Snacks
-        {'item_name': 'Potato Chips (small)', 'price': 2.00, 'units_sold': 34, 'units_left': 16, 'cost_price': 1.00, 'reorder_point': 10, 'description': 'Salted and crispy potato chips'},
-        {'item_name': 'Candy Bar', 'price': 1.50, 'units_sold': 6, 'units_left': 19, 'cost_price': 0.80, 'reorder_point': 15, 'description': 'Chocolate and candy bar'},
-        {'item_name': 'Granola Bar', 'price': 2.25, 'units_sold': 3, 'units_left': 12, 'cost_price': 1.30, 'reorder_point': 8, 'description': 'Healthy and nutritious granola bar'},
-        {'item_name': 'Cookies (pack of 6)', 'price': 2.50, 'units_sold': 8, 'units_left': 8, 'cost_price': 1.50, 'reorder_point': 5, 'description': 'Soft and chewy cookies'},
-        {'item_name': 'Fruit Snack Pack', 'price': 1.75, 'units_sold': 5, 'units_left': 10, 'cost_price': 1.00, 'reorder_point': 8, 'description': 'Assortment of dried fruits and nuts'},
+def get_words(mode='all'):
+    if mode == 'review':
+        query = """
+        SELECT DISTINCT w.id, w.word, w.mean 
+        FROM words w 
+        JOIN records r ON w.id = r.word_id 
+        WHERE r.is_correct = 0
+        """
+    else:
+        query = "SELECT id, word, mean FROM words"
+    return pd.read_sql(query, conn)
 
-        # Personal Care
-        {'item_name': 'Toothpaste', 'price': 3.50, 'units_sold': 1, 'units_left': 9, 'cost_price': 2.00, 'reorder_point': 5, 'description': 'Minty toothpaste for oral hygiene'},
-        {'item_name': 'Hand Sanitizer (small)', 'price': 2.00, 'units_sold': 2, 'units_left': 13, 'cost_price': 1.20, 'reorder_point': 8, 'description': 'Small sanitizer bottle for on-the-go'},
-        {'item_name': 'Pain Relievers (pack)', 'price': 5.00, 'units_sold': 1, 'units_left': 5, 'cost_price': 3.00, 'reorder_point': 3, 'description': 'Over-the-counter pain relief medication'},
-        {'item_name': 'Bandages (box)', 'price': 3.00, 'units_sold': 0, 'units_left': 10, 'cost_price': 2.00, 'reorder_point': 5, 'description': 'Box of adhesive bandages for minor cuts'},
-        {'item_name': 'Sunscreen (small)', 'price': 5.50, 'units_sold': 6, 'units_left': 5, 'cost_price': 3.50, 'reorder_point': 3, 'description': 'Small bottle of sunscreen for sun protection'},
+def save_record(word_id, is_correct):
+    c = conn.cursor()
+    c.execute("INSERT INTO records (word_id, is_correct) VALUES (?, ?)", (int(word_id), is_correct))
+    conn.commit()
 
-        # Household
-        {'item_name': 'Batteries (AA, pack of 4)', 'price': 4.00, 'units_sold': 1, 'units_left': 5, 'cost_price': 2.50, 'reorder_point': 3, 'description': 'Pack of 4 AA batteries'},
-        {'item_name': 'Light Bulbs (LED, 2-pack)', 'price': 6.00, 'units_sold': 3, 'units_left': 3, 'cost_price': 4.00, 'reorder_point': 2, 'description': 'Energy-efficient LED light bulbs'},
-        {'item_name': 'Trash Bags (small, 10-pack)', 'price': 3.00, 'units_sold': 5, 'units_left': 10, 'cost_price': 2.00, 'reorder_point': 5, 'description': 'Small trash bags for everyday use'},
-        {'item_name': 'Paper Towels (single roll)', 'price': 2.50, 'units_sold': 3, 'units_left': 8, 'cost_price': 1.50, 'reorder_point': 5, 'description': 'Single roll of paper towels'},
-        {'item_name': 'Multi-Surface Cleaner', 'price': 4.50, 'units_sold': 2, 'units_left': 5, 'cost_price': 3.00, 'reorder_point': 3, 'description': 'All-purpose cleaning spray'},
-
-        # Others
-        {'item_name': 'Lottery Tickets', 'price': 2.00, 'units_sold': 17, 'units_left': 20, 'cost_price': 1.50, 'reorder_point': 10, 'description': 'Assorted lottery tickets'},
-        {'item_name': 'Newspaper', 'price': 1.50, 'units_sold': 22, 'units_left': 20, 'cost_price': 1.00, 'reorder_point': 5, 'description': 'Daily newspaper'}
-    ]
-
-    try:
-        # st-supabase-connection のラッパー(conn.insert)の代わりに
-        # conn.client (supabase-py) を直接使用
-        conn.client.table("inventory").insert(data_to_insert).execute()
-    except Exception as e:
-        st.error(f"Error initializing data: {e}")
-        st.error("Please ensure the 'inventory' table exists and matches the required schema.")
-
-
-def load_data(conn):
-    """
-    Loads the inventory data from the database.
-    Uses conn.client (supabase-py) syntax.
-    """
-    
-    df_columns = [
-            "id",
-            "item_name",
-            "price",
-            "units_sold",
-            "units_left",
-            "cost_price",
-            "reorder_point",
-            "description",
-        ]
-    
-    try:
-        # conn.query や conn.select の代わりに
-        # conn.client (supabase-py) を直接使用
-        result = conn.client.table("inventory").select("*").order("id").execute()
-        data = result.data
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        st.warning("Ensure the 'inventory' table exists in your Supabase project.")
+# --- クイズ用補助関数 ---
+def prepare_quiz(df):
+    """問題と選択肢を準備する"""
+    if df.empty:
         return None
+    
+    # 正解を1つ選ぶ
+    correct_row = df.sample(n=1).iloc[0]
+    
+    # ハズレの選択肢を全単語リストから3つ選ぶ
+    all_meanings = pd.read_sql("SELECT mean FROM words", conn)['mean'].tolist()
+    all_meanings.remove(correct_row['mean'])
+    distractors = random.sample(all_meanings, 3)
+    
+    # 選択肢をシャッフル
+    options = distractors + [correct_row['mean']]
+    random.shuffle(options)
+    
+    return {
+        "id": correct_row['id'],
+        "word": correct_row['word'],
+        "answer": correct_row['mean'],
+        "options": options
+    }
 
-    if not data:
-        # データがないがテーブルは存在する場合、空のDataFrameを返す
-        return pd.DataFrame(columns=df_columns)
+# --- UI部分 ---
+st.set_page_config(page_title="TOEIC 600点 4択クイズ", layout="centered")
+st.title("🎓 TOEIC 600点 4択マスター")
 
-    df = pd.DataFrame(
-        data,
-        columns=df_columns,
-    )
+menu = st.sidebar.radio("メニュー", ["クイズに挑戦", "復習モード", "学習記録"])
 
-    return df
+if menu in ["クイズに挑戦", "復習モード"]:
+    df_pool = get_words(mode='all' if menu == "クイズに挑戦" else 'review')
+    
+    if df_pool.empty:
+        st.warning("対象となる単語がありません。")
+    else:
+        # 新しい問題をセット
+        if 'quiz_data' not in st.session_state:
+            st.session_state.quiz_data = prepare_quiz(df_pool)
+            st.session_state.answered = False
+            st.session_state.feedback = None
 
+        quiz = st.session_state.quiz_data
 
-def update_data(conn, df, changes):
-    """
-    Updates the inventory data in the database.
-    Uses conn.client (supabase-py) syntax.
-    """
-    try:
-        if changes["edited_rows"]:
-            deltas = st.session_state.inventory_table["edited_rows"]
+        st.info(f"現在のモード: {menu}")
+        st.markdown(f"### Q: **{quiz['word']}**")
+        st.write("意味を次の中から選んでください：")
+
+        # 4択ボタンの作成
+        for option in quiz['options']:
+            if st.button(option, key=option, use_container_width=True, disabled=st.session_state.answered):
+                st.session_state.answered = True
+                if option == quiz['answer']:
+                    st.session_state.feedback = ("correct", f"⭕️ 正解！: {quiz['answer']}")
+                    save_record(quiz['id'], 1)
+                else:
+                    st.session_state.feedback = ("error", f"❌ 不正解... 正解は: {quiz['answer']}")
+                    save_record(quiz['id'], 0)
+
+        # フィードバック表示
+        if st.session_state.answered:
+            type, msg = st.session_state.feedback
+            if type == "correct": st.success(msg)
+            else: st.error(msg)
             
-            for i, delta in deltas.items():
-                row_dict = df.iloc[i].to_dict()
-                row_dict.update(delta)
-                
-                row_id = row_dict.pop("id") 
-                
-                # conn.update の代わりに conn.client を使用
-                conn.client.table("inventory").update(row_dict).eq("id", row_id).execute()
+            if st.button("次の問題へ ➡️"):
+                del st.session_state.quiz_data
+                del st.session_state.answered
+                del st.session_state.feedback
+                st.rerun()
 
-        if changes["added_rows"]:
-            rows_to_insert = [
-                defaultdict(lambda: None, row) for row in changes["added_rows"]
-            ]
-            
-            for row in rows_to_insert:
-                row.pop("id", None) 
-
-            # conn.insert の代わりに conn.client を使用
-            conn.client.table("inventory").insert(rows_to_insert).execute()
-
-        if changes["deleted_rows"]:
-            for i in changes["deleted_rows"]:
-                row_id = int(df.loc[i, "id"])
-                
-                # conn.delete の代わりに conn.client を使用
-                conn.client.table("inventory").delete().eq("id", row_id).execute()
-        
-        st.toast("Changes committed successfully!")
-
-    except Exception as e:
-        st.error(f"Error committing changes: {e}")
-
-
-# -----------------------------------------------------------------------------
-# Draw the actual page, starting with the inventory table.
-
-# Set the title that appears at the top of the page.
-"""
-# :shopping_bags: Inventory tracker
-
-**Welcome to Alice's Corner Store's intentory tracker!**
-This page reads and writes directly from/to our inventory database.
-"""
-
-st.info(
+elif menu == "学習記録":
+    st.subheader("📊 苦手な単語ランキング")
+    query = """
+    SELECT w.word, w.mean, 
+           COUNT(*) as '間違い回数'
+    FROM records r 
+    JOIN words w ON r.word_id = w.id
+    WHERE r.is_correct = 0
+    GROUP BY w.id
+    ORDER BY COUNT(*) DESC
     """
-    Use the table below to add, remove, and edit items.
-    And don't forget to commit your changes when you're done.
-    """
-)
-
-# Connect to database
-conn = st.connection("supabase", type=SupabaseConnection)
-
-# Load data from database
-df = load_data(conn)
-
-# テーブルが空の場合にデータを初期化
-data_loaded_successfully = df is not None
-if data_loaded_successfully and df.empty:
-    initialize_data(conn)
-    st.toast("Database initialized with some sample data.")
-    # 初期化後にデータを再読み込み
-    df = load_data(conn)
-
-# 読み込みに失敗した場合 (テーブルが存在しないなど), df は None になる
-if df is None:
-    st.error("Failed to load data. Please ensure the 'inventory' table exists in Supabase.")
-    st.info("You might need to run the CREATE TABLE script in the Supabase SQL Editor (see code comments in initialize_data).")
-    st.stop() # テーブルが存在しない場合は実行を停止
-
-# Display data with editable table
-edited_df = st.data_editor(
-    df,
-    disabled=["id"],
-    num_rows="dynamic",
-    column_config={
-        "price": st.column_config.NumberColumn(format="$%.2f"),
-        "cost_price": st.column_config.NumberColumn(format="$%.2f"),
-    },
-    key="inventory_table",
-)
-
-has_uncommitted_changes = any(len(v) for v in st.session_state.inventory_table.values())
-
-st.button(
-    "Commit changes",
-    type="primary",
-    disabled=not has_uncommitted_changes,
-    # Update data in database
-    on_click=update_data,
-    args=(conn, df, st.session_state.inventory_table),
-)
-
-
-# -----------------------------------------------------------------------------
-# Now some cool charts
-
-# Add some space
-""
-""
-""
-
-st.subheader("Units left", divider="red")
-
-need_to_reorder = df[df["units_left"] < df["reorder_point"]].loc[:, "item_name"]
-
-if len(need_to_reorder) > 0:
-    items = "\n".join(f"* {name}" for name in need_to_reorder)
-
-    st.error(f"We're running dangerously low on the items below:\n {items}")
-
-""
-""
-
-st.altair_chart(
-    # Layer 1: Bar chart.
-    alt.Chart(df)
-    .mark_bar(
-        orient="horizontal",
-    )
-    .encode(
-        x="units_left",
-        y="item_name",
-    )
-    # Layer 2: Chart showing the reorder point.
-    + alt.Chart(df)
-    .mark_point(
-        shape="diamond",
-        filled=True,
-        size=50,
-        color="salmon",
-        opacity=1,
-    )
-    .encode(
-        x="reorder_point",
-        y="item_name",
-    ),
-    use_container_width=True,
-)
-
-st.caption("NOTE: The :diamonds: location shows the reorder point.")
-
-""
-""
-""
-
-# -----------------------------------------------------------------------------
-
-st.subheader("Best sellers", divider="orange")
-
-""
-""
-
-st.altair_chart(
-    alt.Chart(df)
-    .mark_bar(orient="horizontal")
-    .encode(
-        x="units_sold",
-        y=alt.Y("item_name").sort("-x"),
-    ),
-    use_container_width=True,
-)
+    history_df = pd.read_sql(query, conn)
+    if history_df.empty:
+        st.write("まだ記録がありません。クイズを解いてみましょう！")
+    else:
+        st.table(history_df.head(15))
